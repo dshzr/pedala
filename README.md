@@ -2,6 +2,8 @@
 
 Mapa para montar rotas de bicicleta que preferem ciclovias. Só front-end: não tem login, banco nem chave de API.
 
+**No ar:** https://dshzr.github.io/pedala/ (publica sozinho a cada envio para a `main`, pelo GitHub Actions em `.github/workflows/pages.yml`).
+
 ## Rodar
 
 ```bash
@@ -22,7 +24,7 @@ npm run build    # versão estática em dist/
 
 ## Instalar no celular (PWA)
 
-O site é um app instalável. Precisa estar publicado com https (o GPS e a instalação não funcionam em http).
+O site é um app instalável. Abra https://dshzr.github.io/pedala/ no celular (precisa de https: o GPS e a instalação não funcionam em http).
 
 - **Android (Chrome):** menu ⋮ → "Instalar app".
 - **iPhone (Safari):** Compartilhar → "Adicionar à Tela de Início".
