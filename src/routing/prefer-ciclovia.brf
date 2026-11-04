@@ -1,0 +1,242 @@
+# Perfil "prefere ciclovia" para o BRouter.
+# Baseado no perfil trekking oficial (abrensch/brouter, misc/profiles2/trekking.brf).
+# Ciclovia e ciclofaixa custam 1; ruas calmas um pouco mais; avenidas sem estrutura
+# para bicicleta custam muito; rodovias sao proibidas. A rota sempre sai, mas puxa
+# para a ciclovia sempre que o desvio compensa.
+
+---context:global
+
+assign validForBikes = true
+
+assign   allow_steps          = true
+assign   allow_ferries        = false
+assign   consider_elevation   = true
+
+assign downhillcost   = if consider_elevation then 60 else 0
+assign downhillcutoff = 1.5
+assign uphillcost     = 0
+assign uphillcutoff   = 1.5
+
+assign totalMass  = 90
+assign maxSpeed   = 45
+assign S_C_x      = 0.225
+assign C_r        = 0.01
+assign bikerPower = 100
+
+assign turnInstructionMode          = 1
+assign turnInstructionCatchingRange = 40
+assign turnInstructionRoundabouts   = true
+assign considerTurnRestrictions     = true
+
+assign correctMisplacedViaPoints = false
+assign processUnusedTags         = false
+
+---context:way
+
+assign classifier_none  = 1
+assign classifier_ferry = 2
+
+assign any_cycleroute =
+     if      route_bicycle_icn=yes then true
+     else if route_bicycle_ncn=yes then true
+     else if route_bicycle_rcn=yes then true
+     else if route_bicycle_lcn=yes then true
+     else false
+
+assign nodeaccessgranted =
+     if any_cycleroute then true
+     else lcn=yes
+
+# ciclofaixa ou ciclovia junto da via (qualquer lado)
+assign haslane =
+     or cycleway=lane|track|opposite_lane|opposite_track
+     or cycleway:left=lane|track
+     or cycleway:right=lane|track
+        cycleway:both=lane|track
+
+# faixa compartilhada (ciclorrota pintada, faixa de onibus compartilhada)
+assign hasshared =
+     or cycleway=shared_lane|share_busway
+     or cycleway:left=shared_lane|share_busway
+     or cycleway:right=shared_lane|share_busway
+        cycleway:both=shared_lane|share_busway
+
+# estrutura dedicada a bicicleta
+assign isdedicated =
+     or highway=cycleway
+     or haslane
+        bicycle=designated
+
+assign hascycleway = or haslane hasshared
+
+assign isbike =
+     or isdedicated
+     or hasshared
+     or bicycle_road=yes
+     or cyclestreet=yes
+        bicycle=yes|permissive
+
+assign ispaved = or surface=paved|asphalt|concrete|paving_stones|sett smoothness=excellent|good
+assign isunpaved = not or ispaved or ( and surface= smoothness= ) or surface=fine_gravel|cobblestone smoothness=intermediate|bad
+
+assign turncost = if junction=roundabout then 0 else 90
+
+assign initialclassifier =
+     if route=ferry then classifier_ferry
+     else classifier_none
+
+assign initialcost =
+     if ( equal initialclassifier classifier_ferry ) then 10000
+     else 0
+
+assign defaultaccess =
+       if access= then not motorroad=yes
+       else if access=private|no then false
+       else true
+
+assign bikeaccess =
+       if bicycle= then
+       (
+         if bicycle_road=yes then true
+         else if vehicle= then ( if highway=footway then false else defaultaccess )
+         else not vehicle=private|no
+       )
+       else not bicycle=private|no|dismount|use_sidepath
+
+assign footaccess =
+       if bicycle=dismount then true
+       else if foot= then defaultaccess
+       else not foot=private|no|use_sidepath
+
+# sem acesso de bicicleta mas com acesso a pe: empurrar a bike, custo alto
+assign accesspenalty =
+       if bikeaccess then 0
+       else if footaccess then 6
+       else if bicycle=use_sidepath then 25
+       else 10000
+
+assign badoneway =
+       if reversedirection=yes then
+         if oneway:bicycle=yes then true
+         else if oneway= then junction=roundabout
+         else oneway=yes|true|1
+       else oneway=-1
+
+assign onewaypenalty =
+       if ( badoneway ) then
+       (
+         if ( or hascycleway cycleway=opposite|opposite_lane|opposite_track ) then 0
+         else if ( oneway:bicycle=no                ) then 0
+         else if ( not footaccess                   ) then 100
+         else if ( junction=roundabout|circular     ) then 60
+         else if ( highway=primary|primary_link     ) then 50
+         else if ( highway=secondary|secondary_link ) then 30
+         else if ( highway=tertiary|tertiary_link   ) then 20
+         else 6
+       )
+       else 0.0
+
+assign isresidentialorliving = or highway=residential|living_street living_street=yes
+
+assign costfactor
+
+  if ( and highway= not route=ferry ) then 10000
+  else if ( highway=motorway|motorway_link          ) then 10000
+  else if ( highway=proposed|abandoned|construction ) then 10000
+
+  else min 9999
+  add max onewaypenalty accesspenalty
+
+  if      ( highway=steps   ) then ( if allow_steps then 40 else 10000 )
+  else if ( route=ferry     ) then ( if allow_ferries then 5.67 else 10000 )
+
+  # estrutura dedicada: o que a gente quer
+  else if ( isdedicated     ) then ( if isunpaved then 1.4 else 1 )
+
+  # ruas calmas e compartilhadas: aceitaveis para ligar trechos
+  else if ( or hasshared or bicycle_road=yes cyclestreet=yes ) then 1.4
+  else if ( highway=pedestrian ) then 1.8
+  else if ( highway=living_street ) then 1.5
+  else if ( isresidentialorliving ) then ( if isunpaved then 2.2 else 1.6 )
+  else if ( highway=service ) then ( if isunpaved then 2.4 else 1.8 )
+  else if ( highway=track|road|path|footway ) then
+  (
+    if ( or ispaved tracktype=grade1 ) then ( if isbike then 1.6 else 2.2 )
+    else if ( tracktype=grade2 ) then 2.5
+    else 4
+  )
+
+  # vias com trafego, sem estrutura para bicicleta: evitar
+  else if ( highway=unclassified             ) then 2.5
+  else if ( highway=tertiary|tertiary_link   ) then 3.5
+  else if ( highway=secondary|secondary_link ) then 5
+  else if ( highway=primary|primary_link     ) then 8
+  else if ( highway=trunk|trunk_link         ) then 15
+
+  else 3
+
+assign priorityclassifier =
+
+  if      ( highway=motorway                          ) then  30
+  else if ( highway=motorway_link                     ) then  29
+  else if ( highway=trunk                             ) then  28
+  else if ( highway=trunk_link                        ) then  27
+  else if ( highway=primary                           ) then  26
+  else if ( highway=primary_link                      ) then  25
+  else if ( highway=secondary                         ) then  24
+  else if ( highway=secondary_link                    ) then  23
+  else if ( highway=tertiary                          ) then  22
+  else if ( highway=tertiary_link                     ) then  21
+  else if ( highway=unclassified                      ) then  20
+  else if ( isresidentialorliving                     ) then  6
+  else if ( highway=service                           ) then  6
+  else if ( highway=cycleway                          ) then  6
+  else if ( or bicycle=designated bicycle_road=yes    ) then  6
+  else if ( highway=track                             ) then if tracktype=grade1 then 6 else 4
+  else if ( highway=bridleway|road|path|footway       ) then  4
+  else if ( highway=steps                             ) then  2
+  else if ( highway=pedestrian                        ) then  2
+  else 0
+
+assign isbadoneway = not equal onewaypenalty 0
+assign isgoodoneway = if reversedirection=yes then oneway=-1
+                      else if oneway= then junction=roundabout else oneway=yes|true|1
+assign isroundabout = junction=roundabout
+assign islinktype = highway=motorway_link|trunk_link|primary_link|secondary_link|tertiary_link
+assign isgoodforcars = if greater priorityclassifier 6 then true
+                  else if ( or isresidentialorliving highway=service ) then true
+                  else if ( and highway=track tracktype=grade1 ) then true
+                  else false
+
+assign classifiermask add          isbadoneway
+                      add multiply isgoodoneway   2
+                      add multiply isroundabout   4
+                      add multiply islinktype     8
+                          multiply isgoodforcars 16
+
+---context:node
+
+assign defaultaccess =
+       if ( access= ) then true
+       else if ( access=private|no ) then false
+       else true
+
+assign bikeaccess =
+       if nodeaccessgranted=yes then true
+       else if bicycle= then
+       (
+         if vehicle= then defaultaccess
+         else not vehicle=private|no
+       )
+       else not bicycle=private|no|dismount
+
+assign footaccess =
+       if bicycle=dismount then true
+       else if foot= then defaultaccess
+       else not foot=private|no
+
+assign initialcost =
+       if or highway=traffic_signals and highway=crossing crossing=traffic_signals then 20
+       else
+       if bikeaccess then 0
+       else ( if footaccess then 100 else 1000000 )
