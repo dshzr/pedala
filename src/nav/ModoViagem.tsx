@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Marker, type Map as MapaLibre } from 'maplibre-gl';
 import type { LngLat } from '../geo/distance';
-import { nomeDoPonto } from '../geo/lugares';
+import { mensagemErroLocalizacao, nomeDoPonto } from '../geo/lugares';
 import type { Rota } from '../route/model';
 import { formatarTempo } from '../ui/PainelRotas';
 import { IconeManobra } from './IconeManobra';
@@ -50,7 +50,7 @@ export function ModoViagem(p: Props) {
   const [estado, setEstado] = useState<EstadoViagem | null>(null);
   const [seguindo, setSeguindo] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [semGps, setSemGps] = useState(false);
+  const [semGps, setSemGps] = useState<string | null>(null);
   const [velocidade, setVelocidade] = useState<number | null>(null);
   const [nomesRua, setNomesRua] = useState<Record<number, string>>({});
 
@@ -140,7 +140,7 @@ export function ModoViagem(p: Props) {
   // Fonte de posições: GPS de verdade ou simulação.
   useEffect(() => {
     if (p.simular) {
-      setSemGps(false);
+      setSemGps(null);
       let distancia = 0;
       const id = window.setInterval(() => {
         const perc = atual.current.percurso;
@@ -152,18 +152,21 @@ export function ModoViagem(p: Props) {
       return () => window.clearInterval(id);
     }
     if (!navigator.geolocation) {
-      setSemGps(true);
+      setSemGps('Este navegador não informa a localização.');
       return;
     }
     const id = navigator.geolocation.watchPosition(
       (g) => {
-        setSemGps(false);
+        setSemGps(null);
         const vel = g.coords.speed !== null && g.coords.speed >= 0 ? g.coords.speed * 3.6 : null;
         // O rumo do GPS só vale com a bicicleta andando.
         const rumo = g.coords.heading !== null && (g.coords.speed ?? 0) > 1 ? g.coords.heading : null;
         aoMover([g.coords.longitude, g.coords.latitude], rumo, vel);
       },
-      () => setSemGps(true),
+      // Falha passageira no meio da viagem não acende o alerta; permissão negada sim.
+      (erro) => {
+        if (erro.code === 1 || !ultimaPos.current) setSemGps(mensagemErroLocalizacao(erro.code));
+      },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
     );
     return () => navigator.geolocation.clearWatch(id);
@@ -268,7 +271,7 @@ export function ModoViagem(p: Props) {
 
       {semGps && !p.simular && (
         <div className="viagem-alerta">
-          <p>Não consegui sua localização. Ative o GPS e permita o acesso, ou veja uma simulação.</p>
+          <p>{semGps} Ou veja uma simulação.</p>
           <button type="button" onClick={p.onSimular}>
             Simular trajeto
           </button>

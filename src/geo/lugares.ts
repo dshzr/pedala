@@ -85,17 +85,40 @@ export async function nomeDoPonto(pos: LngLat, signal?: AbortSignal): Promise<st
   return candidatos.find((c) => c.reserva && nomeAceitavel(c.reserva))?.reserva ?? null;
 }
 
-/** Posição atual pelo GPS do navegador. */
-export function minhaLocalizacao(): Promise<LngLat> {
+/** Texto para o usuário conforme o código de erro da geolocalização (1 negado, 2 indisponível, 3 demorou). */
+export function mensagemErroLocalizacao(codigo: number): string {
+  if (codigo === 1) {
+    return 'A localização está bloqueada. Permita o acesso à localização para este site nas configurações do navegador.';
+  }
+  return 'Não deu para achar sua localização agora. Confira se a localização e o Wi-Fi estão ligados e tente de novo.';
+}
+
+function pedirPosicao(opcoes: PositionOptions): Promise<LngLat> {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Este navegador não informa a localização.'));
-      return;
-    }
     navigator.geolocation.getCurrentPosition(
       (p) => resolve([p.coords.longitude, p.coords.latitude]),
-      () => reject(new Error('Não foi possível pegar sua localização.')),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      reject,
+      opcoes,
     );
   });
+}
+
+/**
+ * Posição atual pelo GPS do navegador. Se a primeira tentativa falhar sem ser por permissão
+ * (no Mac, o CoreLocation às vezes ainda não sabe a posição), tenta de novo com precisão menor,
+ * que usa Wi-Fi e aceita uma posição recente guardada.
+ */
+export async function minhaLocalizacao(): Promise<LngLat> {
+  if (!navigator.geolocation) throw new Error('Este navegador não informa a localização.');
+  try {
+    return await pedirPosicao({ enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  } catch (e) {
+    const codigo = (e as GeolocationPositionError).code;
+    if (codigo === 1) throw new Error(mensagemErroLocalizacao(1));
+  }
+  try {
+    return await pedirPosicao({ enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 });
+  } catch (e) {
+    throw new Error(mensagemErroLocalizacao((e as GeolocationPositionError).code));
+  }
 }
